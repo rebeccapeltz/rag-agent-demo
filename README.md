@@ -90,3 +90,12 @@ Visit `http://localhost:3000`.
  cp .env.local.example .env.local
  npm run dev
   ````
+
+  ## KEYS
+
+# Copy this file to .env.local and fill in your own key.
+# Never commit .env.local — it holds a real secret.
+
+ANTHROPIC_API_KEY=
+CLAUDE_MODEL=
+NOMEN_KEY=
