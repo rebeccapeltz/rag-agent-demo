@@ -4,6 +4,8 @@ import Anthropic from "@anthropic-ai/sdk";
 // that's the whole reason this is a Next.js route instead of a client-side
 // fetch, and it's the same proxy pattern as the dashboard demo.
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+console.log("KEY LENGTH:", (process.env.ANTHROPIC_API_KEY || "").length);
+console.log("KEY PREFIX:", (process.env.ANTHROPIC_API_KEY || "").slice(0, 7));
 const MODEL = process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001";
 
 const SYSTEM_PROMPT =
