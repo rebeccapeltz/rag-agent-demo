@@ -10,48 +10,70 @@ const MODEL = process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001";
 // on every question.
 const index = buildIndex(DOCUMENTS);
 
+// Belt-and-suspenders: strip common Markdown syntax in code so output is
+// clean regardless of what the model actually produced.
+function stripMarkdown(text) {
+  return text
+    .split("\n")
+    .map((line) => line.replace(/^>\s?/, ""))
+    .join("\n")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/^[-–—]{2,}\s*/gm, "— ")
+    .trim();
+}
+
 export async function POST(req) {
-  const { message, nomen } = await req.json();
+  try {
+    const { message, nomen } = await req.json();
 
-  // Lightweight shared-passcode gate — not per-user auth, just keeps the
-  // endpoint from being wide open to anyone who finds the URL.
-  if (!process.env.NOMEN_KEY || nomen !== process.env.NOMEN_KEY) {
-    return Response.json({ error: "Incorrect passcode" }, { status: 401 });
+    // Lightweight shared-passcode gate — not per-user auth, just keeps the
+    // endpoint from being wide open to anyone who finds the URL.
+    if (!process.env.NOMEN_KEY || nomen !== process.env.NOMEN_KEY) {
+      return Response.json({ error: "Incorrect passcode" }, { status: 401 });
+    }
+
+    if (!message || typeof message !== "string") {
+      return Response.json({ error: "Missing message" }, { status: 400 });
+    }
+
+    const trace = [];
+    trace.push("Received your question.");
+
+    const topMatches = retrieve(message, DOCUMENTS, index, 3);
+    trace.push(`Scored all ${DOCUMENTS.length} knowledge-base entries with TF-IDF cosine similarity.`);
+    trace.push("Selected the top 3 matches to use as context.");
+
+    const contextBlock = topMatches.map((m) => m.text).join("\n\n");
+    trace.push(`Sent your question plus the retrieved context to ${MODEL}.`);
+
+    const response = await anthropic.messages.create({
+      model: MODEL,
+      max_tokens: 1024,
+      system:
+        "Answer the user's question using ONLY the provided context. If the " +
+        "context doesn't contain the answer, say so rather than guessing.",
+      messages: [
+        {
+          role: "user",
+          content: `Context:\n${contextBlock}\n\nQuestion: ${message}`,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((b) => b.type === "text");
+    const rawAnswer = textBlock ? textBlock.text : "I wasn't able to generate a text answer — try rephrasing.";
+
+    return Response.json({
+      answer: stripMarkdown(rawAnswer),
+      trace,
+      retrieved: topMatches.map((m) => ({ text: m.text, score: m.score })),
+    });
+  } catch (err) {
+    console.error("rag route error:", err);
+    return Response.json(
+      { error: "RAG request failed", detail: String(err?.message || err) },
+      { status: 500 }
+    );
   }
-
-  if (!message || typeof message !== "string") {
-    return Response.json({ error: "Missing message" }, { status: 400 });
-  }
-
-  const trace = [];
-  trace.push("Received your question.");
-
-  const topMatches = retrieve(message, DOCUMENTS, index, 3);
-  trace.push(`Scored all ${DOCUMENTS.length} knowledge-base entries with TF-IDF cosine similarity.`);
-  trace.push("Selected the top 3 matches to use as context.");
-
-  const contextBlock = topMatches.map((m) => m.text).join("\n\n");
-  trace.push(`Sent your question plus the retrieved context to ${MODEL}.`);
-
-  const response = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 1024,
-    system:
-      "Answer the user's question using ONLY the provided context. If the " +
-      "context doesn't contain the answer, say so rather than guessing.",
-    messages: [
-      {
-        role: "user",
-        content: `Context:\n${contextBlock}\n\nQuestion: ${message}`,
-      },
-    ],
-  });
-
-  const textBlock = response.content.find((b) => b.type === "text");
-
-  return Response.json({
-    answer: textBlock ? textBlock.text : "",
-    trace,
-    retrieved: topMatches.map((m) => ({ text: m.text, score: m.score })),
-  });
 }

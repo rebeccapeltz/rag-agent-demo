@@ -31,11 +31,15 @@ export default function RagTab({ nomen }) {
         return;
       }
       const data = await res.json();
+      if (!res.ok) {
+        setMessages((m) => [...m, { role: "assistant", content: `Server error: ${data.detail || data.error || "unknown"}` }]);
+        return;
+      }
       setMessages((m) => [...m, { role: "assistant", content: data.answer || "(no answer)" }]);
       setTrace(data.trace || []);
       setRetrieved(data.retrieved || []);
     } catch (err) {
-      setMessages((m) => [...m, { role: "assistant", content: "Something went wrong reaching the agent." }]);
+      setMessages((m) => [...m, { role: "assistant", content: `Request failed: ${err.message}` }]);
     } finally {
       setLoading(false);
     }

@@ -2,6 +2,21 @@
 
 import { useState } from "react";
 
+// Matches the two-line format the system prompt asks the model for:
+//   "Quote text here"
+//   — Author Name
+// Anything else (non-quote answers, or a third explanatory line) falls
+// through and renders as plain text.
+function parseQuoteAnswer(content) {
+  const match = content.match(/^\s*"?(.+?)"?\s*\n\s*[—-]\s*(.+?)\s*(\n[\s\S]*)?$/);
+  if (!match) return null;
+  return {
+    quote: match[1].trim(),
+    author: match[2].trim(),
+    extra: match[3] ? match[3].trim() : null,
+  };
+}
+
 export default function AgentTab({ nomen }) {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState([]);
@@ -29,10 +44,14 @@ export default function AgentTab({ nomen }) {
         return;
       }
       const data = await res.json();
+      if (!res.ok) {
+        setMessages((m) => [...m, { role: "assistant", content: `Server error: ${data.detail || data.error || "unknown"}` }]);
+        return;
+      }
       setMessages((m) => [...m, { role: "assistant", content: data.answer || "(no answer)" }]);
       setTrace(data.trace || []);
     } catch (err) {
-      setMessages((m) => [...m, { role: "assistant", content: "Something went wrong reaching the agent." }]);
+      setMessages((m) => [...m, { role: "assistant", content: `Request failed: ${err.message}` }]);
     } finally {
       setLoading(false);
     }
@@ -48,12 +67,23 @@ export default function AgentTab({ nomen }) {
               &ldquo;what&apos;s 2+2?&rdquo; — and compare the trace.
             </p>
           )}
-          {messages.map((m, i) => (
-            <div key={i} className={`bubble ${m.role}`}>
-              <span className="bubble-role">{m.role === "user" ? "You" : "Agent"}</span>
-              <p>{m.content}</p>
-            </div>
-          ))}
+          {messages.map((m, i) => {
+            const parsed = m.role === "assistant" ? parseQuoteAnswer(m.content) : null;
+            return (
+              <div key={i} className={`bubble ${m.role}`}>
+                <span className="bubble-role">{m.role === "user" ? "You" : "Agent"}</span>
+                {parsed ? (
+                  <blockquote className="quote-card">
+                    <p className="quote-text">&ldquo;{parsed.quote}&rdquo;</p>
+                    <cite className="quote-author">— {parsed.author}</cite>
+                    {parsed.extra && <p className="quote-extra">{parsed.extra}</p>}
+                  </blockquote>
+                ) : (
+                  <p>{m.content}</p>
+                )}
+              </div>
+            );
+          })}
           {loading && <div className="bubble assistant pending">Thinking…</div>}
         </div>
         <form onSubmit={handleSubmit} className="chat-form">
